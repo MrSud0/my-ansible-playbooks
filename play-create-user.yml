@@ -1,0 +1,40 @@
+---
+- name: Create a user with home directory and SSH keys
+  hosts: all
+  become: yes
+  vars_files:
+    - user_vars.yml
+
+  tasks:
+    - name: Create the user with a home directory
+      user:
+        name: "{{ username }}"
+        state: present
+        create_home: yes
+        shell: /bin/bash
+
+    - name: Create the .ssh directory
+      file:
+        path: "/home/{{ username }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ username }}"
+        group: "{{ username }}"
+
+    - name: Generate SSH key pair if not present
+      openssh_keypair:
+        path: "/home/{{ username }}/.ssh/id_rsa"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: '0600'
+        type: rsa
+        size: 4096
+      register: ssh_key
+
+    - name: Set authorized key
+      copy:
+        content: "{{ ssh_key.public_key }}"
+        dest: "/home/{{ username }}/.ssh/authorized_keys"
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: '0600'
