@@ -1,1 +1,47 @@
-pl
+---
+- name: Move ZFS datasets from source to target pool
+  hosts: all
+  become: yes
+  vars:
+    source_pool: "Images"  # Set your source pool name here
+    target_pool: "vm-storage"  # Set your target pool name here
+    delete_source_after_move: false  # Set to true if you want to delete the source datasets after moving
+
+  tasks:
+    - name: Get list of ZFS datasets in the source pool
+      command: "zfs list -H -o name -r {{ source_pool }}"
+      register: zfs_datasets
+      changed_when: false
+
+    - name: Filter out snapshots from dataset list
+      set_fact:
+        datasets: "{{ zfs_datasets.stdout_lines | select('search', '^[^@]+$') | list }}"
+
+    - name: Move each ZFS dataset to the target pool
+      block:
+        - name: Take snapshot of the dataset
+          command: "zfs snapshot {{ item }}@move"
+          loop: "{{ datasets }}"
+          loop_control:
+            loop_var: dataset
+
+        - name: Send snapshot to target pool
+          command: "zfs send {{ dataset }}@move | zfs receive {{ target_pool }}/{{ dataset | regex_replace('^' + source_pool + '/', '') }}"
+          loop: "{{ datasets }}"
+          loop_control:
+            loop_var: dataset
+
+        - name: Verify dataset transfer
+          command: "zfs list {{ target_pool }}/{{ dataset | regex_replace('^' + source_pool + '/', '') }}"
+          loop: "{{ datasets }}"
+          loop_control:
+            loop_var: dataset
+          failed_when: "'{{ target_pool }}/{{ dataset | regex_replace('^' + source_pool + '/', '') }}' not in result.stdout"
+          ignore_errors: no
+
+    - name: Optionally remove the original datasets from the source pool
+      command: "zfs destroy {{ item }}"
+      loop: "{{ datasets }}"
+      loop_control:
+        loop_var: dataset
+      when: delete_source_after_move
