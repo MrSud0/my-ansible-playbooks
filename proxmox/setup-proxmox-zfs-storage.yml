@@ -1,0 +1,57 @@
+---
+- name: Setup ZFS storage for Proxmox
+  hosts: all
+  become: yes
+  vars:
+    iso_storage_pool_name: "iso-storage"
+    vm_storage_pool_name: "vm-storage"
+    iso_disks: ["/dev/sdX", "/dev/sdY"]  # Replace with the actual disks for ISO storage
+    vm_disks: ["/dev/sdZ", "/dev/sdW"]   # Replace with the actual disks for VM storage
+    proxmox_node: "pve"  # Replace with the actual Proxmox node name
+
+  tasks:
+    - name: Create ZFS pool for ISOs
+      command: "zpool create {{ iso_storage_pool_name }} {{ iso_disks | join(' ') }}"
+      when: iso_disks | length > 0
+
+    - name: Create ZFS pool for VMs with mirroring
+      command: "zpool create {{ vm_storage_pool_name }} mirror {{ vm_disks | join(' ') }}"
+      when: vm_disks | length > 0
+
+    - name: Create dataset for VM images
+      command: "zfs create {{ vm_storage_pool_name }}/vm-images"
+      when: vm_disks | length > 0
+
+    - name: Create dataset for VM backups
+      command: "zfs create {{ vm_storage_pool_name }}/vm-backups"
+      when: vm_disks | length > 0
+
+    - name: Add ISO storage to Proxmox
+      proxmox_kvm_storage:
+        node: "{{ proxmox_node }}"
+        storage: "iso-storage"
+        content: ["iso"]
+        type: "zfspool"
+        pool: "{{ iso_storage_pool_name }}"
+        path: "/{{ iso_storage_pool_name }}"
+        add: true
+
+    - name: Add VM image storage to Proxmox
+      proxmox_kvm_storage:
+        node: "{{ proxmox_node }}"
+        storage: "vm-storage-images"
+        content: ["images"]
+        type: "zfspool"
+        pool: "{{ vm_storage_pool_name }}/vm-images"
+        path: "/{{ vm_storage_pool_name }}/vm-images"
+        add: true
+
+    - name: Add VM backup storage to Proxmox
+      proxmox_kvm_storage:
+        node: "{{ proxmox_node }}"
+        storage: "vm-storage-backups"
+        content: ["backup"]
+        type: "zfspool"
+        pool: "{{ vm_storage_pool_name }}/vm-backups"
+        path: "/{{ vm_storage_pool_name }}/vm-backups"
+        add: true
